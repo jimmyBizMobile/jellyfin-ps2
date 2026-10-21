@@ -630,8 +630,10 @@
  *
  *   0x3F  music decode, and the film's sound
  *   0x40  the video decoder                    (VIDEO_PRIO, in video.c)
- *   0x45  the music reader
- *   0x50  the UI
+ *   0x45  the music and video network readers
+ *   0x48  background reports
+ *   0x56-0x59  SDK NetMan and TCP/IP threads
+ *   0x60  the UI
  *
  * Sound sits above video deliberately: it must not be interrupted, whereas a
  * picture can be dropped or held without much notice. Getting this backwards
@@ -653,19 +655,17 @@
 /*
  * Priority of the UI thread. On the EE a LOWER number wins.
  *
- * The main thread starts at 0, above both audio threads. That matters
- * because gsKit_sync_flip busy-waits on the GS rather than sleeping, so the
- * UI never yields and the decoder is starved: playback crawls.
- *
- * Dropping the UI below the decoder fixes that and is what the working build
- * did. 0 leaves it alone, which sounds safer and is not: it is what makes
- * playback slow.
+ * The main thread starts at 0. gsKit_sync_flip can busy-wait on the GS,
+ * so the UI must sit below both playback and the SDK's network threads.
+ * NetMan and TCP/IP use priorities 0x56-0x59: placing the UI at 0x50 lets
+ * it delay packet processing and ACKs until the playback buffers run dry.
+ * Keep it below those threads so streaming can continue while it waits.
  */
 /* The thread sending stop reports and resume points: above the UI, which
  * can busy-wait on the GS, and below everything that plays. */
 #define REPORT_PRIO 0x48
 
-#define UI_THREAD_PRIO 0x50
+#define UI_THREAD_PRIO 0x60
 
 
 /*

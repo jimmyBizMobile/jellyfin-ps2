@@ -262,7 +262,7 @@ int main(int argc, char **argv)
 	audio_init();
 
 	/*
-	 * Drop the UI below the decoder.
+	 * Drop the UI below playback and SDK networking.
 	 *
 	 * On the EE a lower number wins, and the main thread starts at 0. Since
 	 * gsKit_sync_flip busy-waits on the GS rather than sleeping, the UI
