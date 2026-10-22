@@ -32,14 +32,15 @@ typedef enum {
  */
 typedef struct {
 	void (*enter)(void);          /* on transition in */
-	void (*input)(u32 pressed);   /* per frame, edge-triggered buttons */
+	void (*input)(u32 pressed);   /* rising edges, plus UI Up/Down repeat */
 	void (*draw) (void);          /* per frame */
 } Screen;
 
 typedef void (*JobFn)(void);
 
 void app_init(void);
-void app_frame(u32 pressed);
+/* Press events (including keyboard START) and current controller levels. */
+void app_frame(u32 pressed, u32 held);
 
 void app_goto(ScreenId id);
 

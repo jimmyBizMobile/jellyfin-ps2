@@ -39,9 +39,11 @@ static void pad_setup(void)
 	padPortOpen(0, 0, pad_buf);
 }
 
-/* buttons is a level, not an event, so mask to rising edges. */
-static u32 pad_pressed(void)
+/* Keep rising edges and held state separate so only UI scrolling repeats. */
+static u32 pad_pressed(u32 *held)
 {
+	/* An unavailable controller must not leave UI repetition running. */
+	if (held) *held = 0;
 #if SKIP_PAD
 	return 0;
 #else
@@ -52,6 +54,7 @@ static u32 pad_pressed(void)
 	if (padRead(0, 0, &b) == 0) return 0;
 
 	u32 now = 0xFFFF ^ b.btns;
+	if (held) *held = now;
 	u32 hit = now & ~prev;
 	prev = now;
 	return hit;
@@ -111,7 +114,7 @@ static void choose_display(void)
 	snprintf(title, sizeof(title), "Keep %s?", disp->name);
 
 	for (int f = 0; f < frames; f++) {
-		u32 p = pad_pressed();
+		u32 p = pad_pressed(NULL);
 
 		if (p & PAD_CROSS)
 			return;                   /* keep it */
@@ -262,7 +265,7 @@ int main(int argc, char **argv)
 	audio_init();
 
 	/*
-	 * Drop the UI below the decoder.
+	 * Drop the UI below playback and SDK networking.
 	 *
 	 * On the EE a lower number wins, and the main thread starts at 0. Since
 	 * gsKit_sync_flip busy-waits on the GS rather than sleeping, the UI
@@ -285,7 +288,8 @@ int main(int argc, char **argv)
 	app_init();
 
 	for (;;) {
-		u32 pressed = pad_pressed();
+		u32 held;
+		u32 pressed = pad_pressed(&held);
 
 		/* Enter on a real keyboard behaves exactly like START. */
 		if (keyboard_poll())
@@ -304,7 +308,7 @@ int main(int argc, char **argv)
 				app_freeze(code);
 		}
 
-		app_frame(pressed);
+		app_frame(pressed, held);
 	}
 
 	return 0;

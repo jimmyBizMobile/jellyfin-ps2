@@ -260,7 +260,7 @@ static volatile int g_busy;      /* worker: inside MPEG_Picture right now */
  * its page. video_end then ends the stuck thread and starts a fresh one.
  */
 #define VIDEO_STUCK_BLANKS 90          /* 1.5 s */
-#define VIDEO_PARKED_PRIO  0x7E        /* below the UI (0x50) */
+#define VIDEO_PARKED_PRIO  0x7E        /* below the UI */
 
 static volatile int g_hold;         /* no more pictures: end between them */
 static volatile int g_data_end;     /* data_cb has run out, this stream */

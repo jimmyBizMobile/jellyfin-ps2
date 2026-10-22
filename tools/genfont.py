@@ -53,6 +53,7 @@ def build(size, prefix, preview_name):
     d   = ImageDraw.Draw(tmp)
 
     metrics, max_w = [], 0
+    min_y, max_y = 0, line_h
     for code in CODES:
         ch   = chr(code)
         bbox = d.textbbox((0, 0), ch, font=font)
@@ -64,9 +65,15 @@ def build(size, prefix, preview_name):
 
         metrics.append((code, gw, int(round(adv)), bbox[0]))
         max_w = max(max_w, gw)
+        min_y = min(min_y, bbox[1])
+        max_y = max(max_y, bbox[3])
 
     cell_w = max_w + 2
-    cell_h = line_h + 2
+    # Some accents rise above the font's advertised ascent (negative y),
+    # and some descenders exceed its descent. Include all ink plus a border;
+    # drawing directly into undersized cells contaminates neighboring glyphs.
+    top_pad = -min_y
+    cell_h = max_y + top_pad + 2
     rows   = (len(CODES) + COLS - 1) // COLS
 
     def up8(v):
@@ -82,7 +89,7 @@ def build(size, prefix, preview_name):
         cx = (i % COLS) * cell_w
         cy = (i // COLS) * cell_h
 
-        ad.text((cx - offx + 1, cy + 1), chr(code), font=font,
+        ad.text((cx - offx + 1, cy + top_pad + 1), chr(code), font=font,
                 fill=(255, 255, 255, 255))
 
         cells[code] = (cx, cy, adv + 1)
@@ -129,11 +136,11 @@ def build(size, prefix, preview_name):
     out.append("};\n\n")
 
     out.append(f"const FontAtlasData {prefix} = {{\n"
-               f"\t{atlas_w}, {atlas_h}, {cell_w}, {cell_h}, {line_h},\n"
+               f"\t{atlas_w}, {atlas_h}, {cell_w}, {cell_h}, {line_h}, {top_pad},\n"
                f"\t{FIRST}, {n}, {prefix}_glyphs, {prefix}_bits\n}};\n\n")
 
     print(f"{prefix}: atlas {atlas_w}x{atlas_h}, cell {cell_w}x{cell_h}, "
-          f"{n} glyphs, ascent {ascent} descent {descent}, "
+          f"{n} glyphs, ascent {ascent} descent {descent}, top padding {top_pad}, "
           f"{len(packed)} bytes; preview -> tools/{preview_name}")
     return "".join(out)
 

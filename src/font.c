@@ -182,6 +182,9 @@ void font_draw(GSGLOBAL *gs, float x, float y, float scale,
 	x      = LAY_X(x);
 	y      = LAY_Y(y) + SCR_Y0;
 	scale *= unit() * lay->sy;
+	/* The atlas includes ink outside the font's advertised vertical metrics.
+	 * Compensate its extra top padding to preserve existing text placement. */
+	y -= d->top_pad * scale;
 
 	float pen = x;
 	float cw  = d->cell_w * scale;

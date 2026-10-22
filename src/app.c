@@ -16,6 +16,7 @@
 #include <libpad.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static ScreenId    g_screen = SCR_CONNECT;
 static JobFn       g_job    = NULL;
@@ -24,6 +25,38 @@ static char g_msg[80] = "";
 static char g_res_title[64] = "";
 static char g_res_body[320] = "";
 static int  g_res_ok        = 0;
+
+static u32 g_scroll_direction;
+static unsigned long g_scroll_last, g_scroll_wait;
+
+/* Only vertical UI navigation repeats. Other controls keep rising edges;
+ * screens still own selection bounds, so list ends never wrap. */
+static u32 scroll_repeat(u32 held)
+{
+	u32 direction = held & (PAD_UP | PAD_DOWN);
+	if ((g_screen != SCR_HOME && g_screen != SCR_BROWSE &&
+	     g_screen != SCR_DETAIL && g_screen != SCR_TRACKS) ||
+	    !direction || direction == (PAD_UP | PAD_DOWN)) {
+		g_scroll_direction = 0;
+		return 0;
+	}
+
+	unsigned long now = (unsigned long)clock();
+	if (direction != g_scroll_direction) {
+		g_scroll_direction = direction;
+		g_scroll_last = now;
+		g_scroll_wait = (unsigned long)(CLOCKS_PER_SEC * 350LL / 1000);
+		return 0; /* The physical press already supplied the first move. */
+	}
+
+	/* Unsigned differences tolerate clock rollover. A stalled/slow frame
+	 * emits at most one move, rather than catching up in a burst. */
+	if (now - g_scroll_last < g_scroll_wait)
+		return 0;
+	g_scroll_last = now;
+	g_scroll_wait = (unsigned long)(CLOCKS_PER_SEC * 90LL / 1000);
+	return direction;
+}
 
 /* ------------------------------------------------------------------ */
 /* Busy and result are owned by the framework, not by a feature file.  */
@@ -110,6 +143,7 @@ static const Screen *g_screens[SCR_COUNT] = {
 void app_goto(ScreenId id)
 {
 	freeze_arm(0);                 /* the video screen re-arms itself */
+	g_scroll_direction = 0;
 	g_screen = id;
 	if (g_screens[id]->enter)
 		g_screens[id]->enter();
@@ -137,6 +171,7 @@ void app_progress(const char *msg)
 void app_run_job(JobFn fn, const char *msg)
 {
 	freeze_arm(0);                 /* jobs block the screen on purpose */
+	g_scroll_direction = 0;
 	g_job    = fn;
 	snprintf(g_msg, sizeof(g_msg), "%s", msg);
 	g_screen = SCR_BUSY;      /* no enter hook, so no recursion risk */
@@ -149,6 +184,7 @@ void app_run_job(JobFn fn, const char *msg)
 static void set_result(int ok, const char *title, const char *body)
 {
 	g_res_ok = ok;
+	g_scroll_direction = 0;
 	snprintf(g_res_title, sizeof(g_res_title), "%s", title);
 	snprintf(g_res_body,  sizeof(g_res_body),  "%s", body);
 	g_screen = SCR_RESULT;
@@ -176,7 +212,7 @@ void app_init(void)
  * (after the frame is on screen, so the busy message is visible while the
  * job blocks).
  */
-void app_frame(u32 pressed)
+void app_frame(u32 pressed, u32 held)
 {
 	const Screen *s = g_screens[g_screen];
 
@@ -192,6 +228,7 @@ void app_frame(u32 pressed)
 		geometry = !geometry;
 
 	if (geometry && g_screen != SCR_VIDEO) {
+		g_scroll_direction = 0;
 		ui_begin();
 		ui_geometry_pattern();
 		ui_end();
@@ -199,6 +236,7 @@ void app_frame(u32 pressed)
 	}
 #endif
 
+	pressed |= scroll_repeat(held);
 	if (s->input)
 		s->input(pressed);
 
