@@ -329,6 +329,15 @@
 #define VIDEO_MAX_H 480
 
 /*
+ * The fastest the decoder keeps up with: MPEG-2 Main Level, 30 frames
+ * a second. Faster sources are asked for at a whole fraction of their
+ * rate (jf_video_rate). The slack keeps a source reported as 30.02 fps
+ * from being halved.
+ */
+#define VIDEO_MAX_FPS_MILLI   30000
+#define VIDEO_FPS_SLACK_MILLI  1000
+
+/*
  * Which transport stream PID carries the video.
  *
  * Jellyfin's transcodes put video on 0x0100 and audio on 0x0101, confirmed

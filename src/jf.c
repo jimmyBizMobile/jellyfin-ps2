@@ -1477,6 +1477,9 @@ int jf_load_episodes(const char *series_id, const char *season_id,
 /* The picture Jellyfin will actually produce, given a box. */
 int jf_video_pic_w, jf_video_pic_h;
 
+/* The frame rate it will produce: what the last stream was asked for. */
+int jf_video_fps_milli;
+
 JfStream jf_audio[JF_STREAM_MAX];
 int      jf_audio_count;
 
@@ -1669,6 +1672,20 @@ void jf_video_box(int src_w, int src_h, int *w, int *h)
 
 }
 
+/*
+ * Every other picture of a 50 or 60 fps source, rather than resampling
+ * it to 30: the cadence stays even.
+ */
+int jf_video_rate(int src_milli)
+{
+	if (src_milli <= VIDEO_MAX_FPS_MILLI + VIDEO_FPS_SLACK_MILLI)
+		return src_milli;
+
+	int n = (src_milli + VIDEO_MAX_FPS_MILLI - 1) / VIDEO_MAX_FPS_MILLI;
+
+	return src_milli / n;
+}
+
 /* The session and device the last stream was requested with. */
 static char g_play_session[24];
 static char g_play_device[64];
@@ -1707,10 +1724,12 @@ const char *jf_video_stream_path_at(const char *item_id, int audio_index,
 	 * encode is refused before it starts. It only bites once a subtitle
 	 * filter is in the chain, but sending it always costs nothing.
 	 */
-	if (jf_detail.fps_milli > 0)
+	jf_video_fps_milli = jf_video_rate(jf_detail.fps_milli);
+
+	if (jf_video_fps_milli > 0)
 		n += snprintf(path + n, sizeof(path) - n, "&framerate=%d.%03d",
-		              jf_detail.fps_milli / 1000,
-		              jf_detail.fps_milli % 1000);
+		              jf_video_fps_milli / 1000,
+		              jf_video_fps_milli % 1000);
 
 	if (audio_index >= 0)
 		n += snprintf(path + n, sizeof(path) - n,

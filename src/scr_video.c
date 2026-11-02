@@ -1199,8 +1199,8 @@ static void advance_startup(void)
 			jf_video_stop_flush();
 
 			/* One frame at 90 kHz, for pictures with no PTS. */
-			g_frame90 = jf_detail.fps_milli > 0
-			          ? (int)(90000000LL / jf_detail.fps_milli)
+			g_frame90 = jf_video_fps_milli > 0
+			          ? (int)(90000000LL / jf_video_fps_milli)
 			          : 3003;
 			video_set_frame90(g_frame90);
 
@@ -1263,6 +1263,7 @@ static void advance_startup(void)
 			video_set_pts_source(NULL);
 			video_set_frame90(3003);
 			g_frame90 = 3003;
+			jf_video_fps_milli = 0;  /* no request: pace by the file */
 		}
 
 		/*
@@ -1808,8 +1809,8 @@ static void input(u32 p)
 		 * The frame time we asked the server for, not the one the
 		 * decoder reports.
 		 *
-		 * jf_detail.fps_milli comes from the item's own video stream
-		 * and goes into the transcode request, so it is exactly what
+		 * jf_video_fps_milli is the rate put in the transcode request,
+		 * fitted to the decoder (jf_video_rate), so it is exactly what
 		 * is arriving. m_MSPerFrame from the sequence header has to be
 		 * right too, but it comes back as 0 for some streams - and the
 		 * clamp below then turns that into 16 ms, a picture every
@@ -1818,8 +1819,8 @@ static void input(u32 p)
 		 */
 		int ms = 0;
 
-		if (jf_detail.fps_milli > 0)
-			ms = 1000000 / jf_detail.fps_milli;
+		if (jf_video_fps_milli > 0)
+			ms = 1000000 / jf_video_fps_milli;
 
 		if (ms < 16)
 			ms = video_ms_per_frame();

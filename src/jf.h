@@ -64,7 +64,9 @@ typedef struct {
 	int  aspect_sure;
 
 	/*
-	 * Frames per second, times 1000, from the video stream.
+	 * Frames per second, times 1000, from the video stream. The rate
+	 * actually asked for is jf_video_rate's, within what the decoder
+	 * keeps up with.
 	 *
 	 * Needed in the transcode request, not merely useful: once a subtitle
 	 * filter is in the chain ffmpeg loses the rate and falls back to the
@@ -268,6 +270,19 @@ void jf_video_box(int src_w, int src_h, int *w, int *h);
  * reports the padded size, so these are what should actually be drawn.
  */
 extern int jf_video_pic_w, jf_video_pic_h;
+
+/*
+ * The frame rate to ask for: the source's, or the largest whole fraction
+ * of it within VIDEO_MAX_FPS_MILLI (config.h). 59.94 becomes 29.97, 50
+ * becomes 25; anything at or under the limit is unchanged.
+ */
+int jf_video_rate(int src_milli);
+
+/*
+ * The rate jf_video_stream_path_at last asked for: the player paces
+ * against this, not the file's rate. 0 when no stream has been asked for.
+ */
+extern int jf_video_fps_milli;
 
 /*
  * Path for streaming a track as raw PCM. Jellyfin does the decoding, so the
