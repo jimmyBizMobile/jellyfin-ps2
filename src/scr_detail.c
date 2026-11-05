@@ -159,6 +159,7 @@ void scr_detail_reset(void)
  */
 static char g_last_audio[48];
 static char g_last_sub[48];     /* "" for none */
+static int  g_last_burn;        /* ...and whether it was the burned-in one */
 
 /* Play jf_detail with the chosen tracks, from the start or resumed. */
 static void start_play(int resume)
@@ -171,6 +172,7 @@ static void start_play(int resume)
 	         jf_audio_count ? jf_audio[g_audio_sel].label : "");
 	snprintf(g_last_sub, sizeof(g_last_sub), "%s",
 	         g_sub_sel >= 0 ? jf_subs[g_sub_sel].label : "");
+	g_last_burn = g_sub_sel >= 0 && jf_subs[g_sub_sel].burn;
 
 	/*
 	 * Text subtitles are fetched now and drawn by the PS2, so the
@@ -180,9 +182,12 @@ static void start_play(int resume)
 	 * whose download fails falls back to that too.
 	 */
 	if (b >= 0 && jf_subs[g_sub_sel].is_text) {
+		const char *c   = jf_subs[g_sub_sel].codec;
+		int         ass = !strcmp(c, "ass") || !strcmp(c, "ssa");
+
 		app_progress("Loading subtitles...");
 
-		if (subs_load(jf_detail.id, b) > 0)
+		if (subs_load(jf_detail.id, b, ass) > 0)
 			b = -1;              /* drawn here, not burned in */
 	} else {
 		subs_clear();
@@ -244,6 +249,12 @@ void job_play_next(void)
 	}
 
 	g_sub_sel = g_last_sub[0] ? pick(jf_subs, jf_sub_count, g_last_sub) : -1;
+
+	/* The burned-in copy of an ASS track follows the drawn one. */
+	if (g_sub_sel >= 0 && g_last_burn && g_sub_sel + 1 < jf_sub_count &&
+	    jf_subs[g_sub_sel + 1].burn &&
+	    jf_subs[g_sub_sel + 1].index == jf_subs[g_sub_sel].index)
+		g_sub_sel++;
 
 	start_play(0);
 }
@@ -428,7 +439,29 @@ static void draw(void)
 			float ry = ROW_Y + (r - first_sel()) * 32.0f;
 			int   on = (g_row == r);
 
-			ui_round(tx, ry, 300, 28, 4,
+			/*
+			 * The row spans the text column. Its parts, left to right:
+			 * the label, "<", the value, ">", and for subtitles the
+			 * TEXT / IMAGE / BURNED tag inside the row's right end. The
+			 * value is shortened with "..." to fit between the arrows,
+			 * so a long track name never runs under the tag (v58).
+			 */
+			float rw = TW;
+			const char *tag = NULL;
+			float bw = 0;
+
+			if (r != audio_row() && g_sub_sel >= 0) {
+				tag = jf_subs[g_sub_sel].is_text ? "TEXT"
+				    : jf_subs[g_sub_sel].burn    ? "BURNED"
+				                                 : "IMAGE";
+				bw  = ui_text_w(1.0f, tag) + 12;
+			}
+
+			float right = tx + rw - (tag ? bw + 10 : 0);   /* end of the value area */
+			float gt_x  = right - 16;                       /* ">" */
+			float vx    = tx + 140;                         /* the value */
+
+			ui_round(tx, ry, rw, 28, 4,
 			         on ? GS_SETREG_RGBAQ(0x2A, 0x2C, 0x50, 0x80, 0x00)
 			            : GS_SETREG_RGBAQ(0x1C, 0x1E, 0x3C, 0x80, 0x00));
 
@@ -441,21 +474,43 @@ static void draw(void)
 			 * drawn to rows that are not being changed. */
 			if (on) {
 				ui_text(tx + 120, ry + 6, 1.0f, C_LILAC, "<");
-				ui_text(tx + 286, ry + 6, 1.0f, C_LILAC, ">");
+				ui_text(gt_x,     ry + 6, 1.0f, C_LILAC, ">");
 			}
 
-			ui_text(tx + 140, ry + 6, 1.0f, on ? C_WHITE : C_DIM, value);
+			{
+				char  fit[100];         /* the name, or its shortened form... */
+				float maxw = gt_x - 8 - vx;
+
+				snprintf(fit, sizeof(fit), "%s", value);
+
+				if (ui_text_w(1.0f, fit) > maxw) {
+					int n = (int)strlen(fit);
+
+					while (n > 0) {
+						fit[--n] = '\0';
+						while (n > 0 && fit[n - 1] == ' ')
+							fit[--n] = '\0';
+						char tmp[sizeof(fit)];  /* ...and the same size for the trial */
+						snprintf(tmp, sizeof(tmp), "%s...", fit);
+						if (ui_text_w(1.0f, tmp) <= maxw) {
+							snprintf(fit, sizeof(fit), "%s", tmp);
+							break;
+						}
+					}
+				}
+
+				ui_text(vx, ry + 6, 1.0f, on ? C_WHITE : C_DIM, fit);
+			}
 
 			/*
 			 * What kind of subtitles: TEXT is drawn by the PS2, quick
 			 * to start and seek; IMAGE is burned in by the server,
-			 * slower to start. Nothing for None.
+			 * slower to start; BURNED is an ASS track burned in with
+			 * all its signs and effects. Nothing for None.
 			 */
-			if (r != audio_row() && g_sub_sel >= 0) {
-				int         t   = jf_subs[g_sub_sel].is_text;
-				const char *tag = t ? "TEXT" : "IMAGE";
-				float       bw  = ui_text_w(1.0f, tag) + 12;
-				float       bx  = tx + 310;
+			if (tag) {
+				int   t  = jf_subs[g_sub_sel].is_text;
+				float bx = tx + rw - bw - 4;
 
 				ui_round(bx, ry + 3, bw, 22, 4,
 				         t ? C_OK : GS_SETREG_RGBAQ(0xE8, 0xB0, 0x4A, 0x80, 0x00));

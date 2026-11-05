@@ -28,6 +28,7 @@ int jf_load_detail(const char *id)
 const char *jf_err_title(void) { return ""; }
 const char *jf_err_body(void) { return ""; }
 void app_fail(const char *a, const char *b) { (void)a; (void)b; assert(0); }
+void app_fail_here(const char *a, const char *b) { (void)a; (void)b; assert(0); }
 void scr_detail_reset(void) {}
 void app_goto(ScreenId id) { destination = id; }
 void app_run_job(JobFn fn, const char *s) { (void)s; jobs++; fn(); }

@@ -88,6 +88,8 @@ typedef struct {
 	char codec[12];       /* "ass", "pgssub", "aac"... */
 	int  is_text;         /* subtitles only: text (drawn by the PS2), not
 	                         pictures (PGS, VobSub: burned in) */
+	int  burn;            /* subtitles only: an ASS/SSA track offered a
+	                         second time, burned in with all its styling */
 } JfStream;
 
 #define JF_STREAM_MAX 12

@@ -28,6 +28,7 @@ SRC_OBJS = src/main.o   \
            src/layout.o   \
            src/freeze.o   \
            src/settings.o \
+           src/remote.o \
            src/subs.o   \
            src/jf.o     \
            src/osk.o    \
@@ -86,7 +87,7 @@ endif
 EE_LIBS = -lgskit_toolkit -lgskit -ldmakit $(PNG_LIBS) \
           -lturbojpeg -ljpeg -laudsrv -lmad \
           -lmpeg -lpacket -ldma \
-          -lnetman -lps2ip -lpatches -lkbd -lpad -ldebug -lm
+          -lnetman -lps2ip -lpatches -lkbd -lpad -lcdvd -ldebug -lm
 
 EE_CFLAGS = -Wall -O2 -G0 -DJFPS2_VERSION=\"$(VERSION)\" -DJFPS2_BUILD=\"$(BUILD)\"
 

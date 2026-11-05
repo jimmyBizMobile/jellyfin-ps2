@@ -17,6 +17,7 @@
 #include "ts.h"
 #include "vaudio.h"
 #include "subs.h"
+#include "remote.h"
 #include "settings.h"
 
 #include <kernel.h>       /* the reader thread */
@@ -1024,6 +1025,22 @@ static const char *stage_name(Stage s)
 static int       g_shape_choice;
 static long long g_shape_note_until;     /* show the choice until (wall90) */
 
+/*
+ * R3: subtitles drawn by the PS2 hidden or shown (v59). Kept across seeks
+ * and pauses of the same film, back on for each new one. Burned-in
+ * subtitles are part of the picture and cannot be hidden: R3 then only
+ * says so. The note shows for two seconds, like the shape's.
+ */
+static int         g_subs_hidden;
+
+/*
+ * TITLE on the remote during a film: stop exactly as STOP or Circle does,
+ * then go to HOME instead of the film's page (v60).
+ */
+static int         g_stop_home;
+static long long   g_sub_note_until;
+static const char *g_sub_note = "";
+
 /* Clear every per-stream variable before a new stream starts. */
 static void reset_stream(void)
 {
@@ -1033,6 +1050,7 @@ static void reset_stream(void)
 	 * later film.
 	 */
 	g_shape_note_until = 0;
+	g_sub_note_until   = 0;
 
 	/* Timing diagnostics, per stream (DEBUG_UI readout). */
 	g_dbg_clk0      = -1;
@@ -1132,13 +1150,24 @@ static char g_item[40];
 static int g_audio_index = -1;   /* -1 leaves the choice to Jellyfin */
 static int g_sub_index   = -1;   /* -1 for no subtitles */
 
+void scr_video_stop_to_home(void)
+{
+	g_stop_home = 1;
+	g_stopping  = 1;     /* the next frame stops, as STOP does */
+}
+
 void scr_video_open_at(const char *item_id, int audio_index, int sub_index,
                        long long start_ticks)
 {
-	if (strcmp(g_item, item_id ? item_id : "") != 0)
+	g_stop_home = 0;
+
+	if (strcmp(g_item, item_id ? item_id : "") != 0) {
 		g_shape_choice = 0;         /* a new film: its own shape */
+		g_subs_hidden  = 0;         /* ...and its subtitles shown */
+	}
 
 	g_shape_note_until = 0;
+	g_sub_note_until   = 0;
 
 	snprintf(g_item, sizeof(g_item), "%s", item_id ? item_id : "");
 
@@ -1629,7 +1658,18 @@ static void input(u32 p)
 	if (g_stopping) {
 		g_stopping = 0;
 		stop();
-		app_goto(SCR_DETAIL);
+
+		if (g_stop_home) {
+			/*
+			 * stop() has finished everything - threads, stream, the
+			 * position reported, the transcode ended - before HOME is
+			 * even asked for.
+			 */
+			g_stop_home = 0;
+			app_run_job(job_load_home, "Loading...");
+		} else {
+			app_goto(SCR_DETAIL);
+		}
 		return;
 	}
 
@@ -1647,8 +1687,27 @@ static void input(u32 p)
 	if (p && !was_visible)
 		g_vbtn = VB_PLAY;
 
-	if (p & PAD_CIRCLE) {
+	if (p & (PAD_CIRCLE | RMK_STOP)) {
 		g_stopping = 1;
+		return;
+	}
+
+	/*
+	 * R3: hide or show the subtitles drawn by the PS2 (TEXT tracks).
+	 * Burned-in ones (BURNED, IMAGE) are part of the picture: say so.
+	 */
+	if (p & PAD_R3) {
+		if (subs_active_for(g_item)) {
+			g_subs_hidden ^= 1;
+			g_sub_note = g_subs_hidden ? "Subtitles off" : "Subtitles on";
+		} else if (g_sub_index >= 0) {
+			g_sub_note = "Subtitles are part of the picture";
+		} else {
+			g_sub_note = "No subtitles";
+		}
+
+		g_sub_note_until   = wall90() + 2LL * 90000;
+		g_shape_note_until = 0;      /* one note at a time */
 		return;
 	}
 
@@ -1662,6 +1721,7 @@ static void input(u32 p)
 
 		g_shape_choice      = (now == 1778) ? 1333 : 1778;
 		g_shape_note_until  = wall90() + 2LL * 90000;
+		g_sub_note_until    = 0;     /* one note at a time */
 		return;
 	}
 
@@ -1686,6 +1746,25 @@ static void input(u32 p)
 
 	if (p & PAD_START)
 		act = VB_PLAY;
+
+	/*
+	 * The remote's own keys. PLAY only plays and PAUSE only pauses - each
+	 * does nothing in the other state - unlike X and START, which toggle.
+	 * SCAN and PREV/NEXT are -10 s and +20 s; held, they repeat, and the
+	 * seeks gather into one reload as presses of the buttons do.
+	 */
+	{
+		int paused = (g_stage == ST_PAUSED) || g_live_paused;
+
+		if (p & RMK_PLAY)
+			act = paused ? VB_PLAY : -1;
+		if (p & RMK_PAUSE)
+			act = paused ? -1 : VB_PLAY;
+		if (p & (RMK_SCAN_B | RMK_PREV))
+			act = VB_BACK;
+		if (p & (RMK_SCAN_F | RMK_NEXT))
+			act = VB_FWD;
+	}
 
 	/* Paused with the stream handed back: as before. */
 	if (g_stage == ST_PAUSED) {
@@ -2356,15 +2435,12 @@ static void draw_bar(const char *status)
 #define SUB_MAX_LINES 6
 
 /*
- * The current subtitle line, wrapped, white on a black outline, above the
- * bar when it shows.
+ * One block of subtitle text, wrapped, white on a black outline: at the
+ * bottom (above the bar when it shows), or from the top for lines placed
+ * there - an opening's romaji, translator notes.
  */
-static void draw_subs(void)
+static void draw_sub_block(const char *t, int at_top)
 {
-	const char *t = subs_at((int)(g_pos_ticks / 10000));
-
-	if (!t)
-		return;
 
 	const float maxw = SCR_W - 80.0f;
 	static char lines[SUB_MAX_LINES][160];
@@ -2429,7 +2505,7 @@ static void draw_subs(void)
 	const u64   black  = GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x80, 0x00);
 
 	for (int i = 0; i < n; i++) {
-		float y  = bottom - (n - i) * lh;
+		float y  = at_top ? 20.0f + i * lh : bottom - (n - i) * lh;
 		float cx = SCR_W / 2;
 
 		ui_text_c(cx - 2, y, 1.0f, black, lines[i]);
@@ -2438,6 +2514,18 @@ static void draw_subs(void)
 		ui_text_c(cx, y + 2, 1.0f, black, lines[i]);
 		ui_text_c(cx, y,     1.0f, C_WHITE, lines[i]);
 	}
+}
+
+/* The subtitles showing now: bottom and top. */
+static void draw_subs(void)
+{
+	const char *top = NULL;
+	const char *bot = subs_at((int)(g_pos_ticks / 10000), &top);
+
+	if (bot)
+		draw_sub_block(bot, 0);
+	if (top)
+		draw_sub_block(top, 1);
 }
 
 /*
@@ -2478,10 +2566,20 @@ static void draw(void)
 			         GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x60, 0x00));
 			ui_text_c(SCR_W / 2, 22, 1.0f, C_WHITE, t);
 		}
+
+		/* R3's note, the same way. */
+		if (wall90() < g_sub_note_until) {
+			const char *t  = g_sub_note;
+			float       tw = ui_text_w(1.0f, t);
+
+			ui_round((SCR_W - tw) / 2 - 10, 18, tw + 20, 28, 5,
+			         GS_SETREG_RGBAQ(0x00, 0x00, 0x00, 0x60, 0x00));
+			ui_text_c(SCR_W / 2, 22, 1.0f, C_WHITE, t);
+		}
 	}
 
-	if (pic && subs_active_for(g_item) && g_stage != ST_DONE && !g_stopping &&
-	    !g_outro)
+	if (pic && subs_active_for(g_item) && !g_subs_hidden &&
+	    g_stage != ST_DONE && !g_stopping && !g_outro)
 		draw_subs();
 
 	/* The fade at the end: black, from clear to solid. */

@@ -687,6 +687,8 @@
  */
 #define SUBS_MAX_BYTES (1024 * 1024)   /* the file as downloaded */
 #define SUBS_MAX_CUES  6000            /* timed lines */
+#define SUBS_MIN_MS    150             /* shorter lines are dropped */
+#define SUBS_MAX_SHOWN 3               /* lines at the bottom at once */
 
 /* ---- startup ---- */
 

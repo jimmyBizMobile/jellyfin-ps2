@@ -64,6 +64,9 @@ void app_progress(const char *msg);
 
 /* Jump to the result screen. */
 void app_fail(const char *title, const char *body);
+/* The same, for a job that left its starting screen untouched: Back
+ * returns to that screen and Retry runs the job again. */
+void app_fail_here(const char *t, const char *b);
 
 /* The freeze safety net set a thread aside: stop what used it (freeze.h). */
 void app_freeze(char code);

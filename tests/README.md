@@ -37,8 +37,9 @@ HTTP, PS2 sleep, and UI drawing are mocked; these are not socket or hardware tes
   rendered rows, three-digit counts, empty seasons, and music selection at 255.
 - Title/duration column bounds for short and long titles (including unbroken
   and Latin-1 text), standard/wide layouts, selected/unselected rows, and music
-  as well as episodes. Titles use the existing one-line wrapping helper with
-  a 12-unit gap before the measured duration; source titles remain unchanged.
+  as well as episodes. Titles are cut to one line, ending in "..." when they
+  do not fit (v61), with a 12-unit gap before the measured duration; source
+  titles remain unchanged.
 - Delayed held Up/Down input through the real screen manager: immediate press,
   350 ms initial delay, 90 ms repeat interval, release/repress, direction
   changes, conflicting directions, slow frames, clock rollover, and resets

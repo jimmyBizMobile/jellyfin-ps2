@@ -12,6 +12,7 @@
 #include "screens.h"
 #include "ui.h"
 #include "jf.h"
+#include "remote.h"
 
 #include <libpad.h>
 #include <stdio.h>
@@ -25,6 +26,18 @@ static char g_msg[80] = "";
 static char g_res_title[64] = "";
 static char g_res_body[320] = "";
 static int  g_res_ok        = 0;
+
+/*
+ * Where a job was started from, and the job itself, so a failure that
+ * left that screen untouched (app_fail_here) can go back to it and Retry
+ * can run the job again. Every other failure goes back to the connect
+ * screen, as before.
+ */
+static ScreenId g_job_from  = SCR_CONNECT;
+static JobFn    g_last_job  = NULL;
+static char     g_last_msg[80] = "";
+static ScreenId g_fail_from = SCR_CONNECT;
+static int      g_fail_here = 0;
 
 static u32 g_scroll_direction;
 static unsigned long g_scroll_last, g_scroll_wait;
@@ -74,17 +87,30 @@ static void busy_draw(void)
 }
 
 /*
- * Result screen input. X goes back to the connect screen; START retries:
- * on success it continues to the user page, on failure it connects again.
+ * Result screen input. X goes back: to the browsing screen a failed job
+ * started from (a season that would not load returns to the seasons,
+ * signed in as before), otherwise to the connect screen. START retries:
+ * the same job for a browsing failure; otherwise, on success it continues
+ * to the user page, on failure it connects again.
  */
 static void result_input(u32 p)
 {
-	if (p & PAD_CROSS)
-		app_goto(SCR_CONNECT);
+	int back = !g_res_ok && g_fail_here && g_last_job;
+
+	if (p & PAD_CROSS) {
+		if (back)
+			g_screen = g_fail_from;   /* as it was: no enter(), no reload */
+		else
+			app_goto(SCR_CONNECT);
+	}
 
 	if (p & PAD_START) {
-		if (g_res_ok) app_run_job(job_load_users, "Loading users...");
-		else          app_run_job(job_connect,    "Connecting...");
+		if (back)
+			app_run_job(g_last_job, g_last_msg);
+		else if (g_res_ok)
+			app_run_job(job_load_users, "Loading users...");
+		else
+			app_run_job(job_connect,    "Connecting...");
 	}
 }
 
@@ -172,6 +198,14 @@ void app_run_job(JobFn fn, const char *msg)
 {
 	freeze_arm(0);                 /* jobs block the screen on purpose */
 	g_scroll_direction = 0;
+
+	/* A job queued by a job keeps the first one's origin. */
+	if (g_screen != SCR_BUSY && g_screen != SCR_RESULT)
+		g_job_from = g_screen;
+
+	g_last_job = fn;
+	snprintf(g_last_msg, sizeof(g_last_msg), "%s", msg);
+
 	g_job    = fn;
 	snprintf(g_msg, sizeof(g_msg), "%s", msg);
 	g_screen = SCR_BUSY;      /* no enter hook, so no recursion risk */
@@ -183,6 +217,10 @@ void app_run_job(JobFn fn, const char *msg)
  */
 static void set_result(int ok, const char *title, const char *body)
 {
+	/* Where Back returns to: the job's origin, or the screen that failed. */
+	g_fail_from = (g_screen == SCR_BUSY) ? g_job_from : g_screen;
+	g_fail_here = 0;
+
 	g_res_ok = ok;
 	g_scroll_direction = 0;
 	snprintf(g_res_title, sizeof(g_res_title), "%s", title);
@@ -196,6 +234,19 @@ static void set_result(int ok, const char *title, const char *body)
  */
 void app_fail(const char *t, const char *b) { set_result(0, t, b); }
 
+/*
+ * The same, for a job that loads into its own data (a season's episodes,
+ * an album's tracks, a film's page) and so leaves the screen it started
+ * from as it was: Back returns there, Retry runs the job again, and the
+ * sign-in is untouched (v58: a season too large to load used to land on
+ * the connect screen, which looked like being signed out).
+ */
+void app_fail_here(const char *t, const char *b)
+{
+	set_result(0, t, b);
+	g_fail_here = 1;
+}
+
 
 /*
  * Always the connect screen first: nothing is usable until the server is
@@ -204,6 +255,85 @@ void app_fail(const char *t, const char *b) { set_result(0, t, b); }
 void app_init(void)
 {
 	app_goto(SCR_CONNECT);
+}
+
+/*
+ * TITLE on the remote (TOP MENU on later models): HOME from anywhere once
+ * signed in. A film or music stops first, through the same careful path
+ * as STOP or Circle - every thread finished, the position reported, the
+ * transcode ended - and only then is HOME loaded. Before sign-in there is
+ * no HOME, so the key does nothing.
+ */
+static void go_home(void)
+{
+	switch (g_screen) {
+	case SCR_VIDEO:
+		scr_video_stop_to_home();
+		break;
+
+	case SCR_PLAYER:
+		audio_stop();             /* waits for the worker, as Circle does */
+		app_run_job(job_load_home, "Loading...");
+		break;
+
+	case SCR_HOME:
+	case SCR_BROWSE:
+	case SCR_DETAIL:
+	case SCR_TRACKS:
+	case SCR_SEARCH:
+	case SCR_USB:
+	case SCR_NEXT:
+		app_run_job(job_load_home, "Loading...");
+		break;
+
+	default:
+		break;
+	}
+}
+
+/*
+ * The remote's own keys (remote.h: RMK_ bits), turned into what each
+ * screen understands. Video and music handle them themselves; the others
+ * get the controller button that does the same thing, or nothing.
+ */
+static u32 route_remote(u32 pressed)
+{
+	u32 r = pressed & RMK_ALL;
+	u32 p = pressed & ~RMK_ALL;
+
+	if (!r)
+		return pressed;
+
+	if (r & RMK_HOME) {
+		go_home();
+		return 0;                 /* nothing else this frame */
+	}
+
+	switch (g_screen) {
+	case SCR_VIDEO:
+	case SCR_PLAYER:
+		return pressed;
+
+	case SCR_BROWSE:
+		if (r & RMK_PREV) p |= PAD_L1;
+		if (r & RMK_NEXT) p |= PAD_R1;
+		break;
+
+	case SCR_DETAIL:
+	case SCR_TRACKS:
+		if (r & RMK_PLAY) p |= PAD_CROSS;
+		break;
+
+	case SCR_NEXT:
+		if (r & RMK_PLAY) p |= PAD_CROSS;
+		if (r & RMK_STOP) p |= PAD_CIRCLE;
+		break;
+
+	default:
+		break;
+	}
+
+	return p;
 }
 
 /*
@@ -237,11 +367,23 @@ void app_frame(u32 pressed, u32 held)
 #endif
 
 	pressed |= scroll_repeat(held);
+	pressed  = route_remote(pressed);
+
+	if (g_screen != SCR_VIDEO && g_screen != SCR_PLAYER)
+		pressed &= ~RMK_ALL;          /* never reaches a screen that ignores it */
+
+	s = g_screens[g_screen];          /* TITLE may have queued a job */
+
 	if (s->input)
 		s->input(pressed);
 
 	ui_begin();
 	g_screens[g_screen]->draw();     /* re-read: input may have moved us */
+#if DEBUG_UI
+	/* The remote's last raw reply, for mapping a key that does nothing. */
+	if (g_screen != SCR_VIDEO)
+		ui_text(16, SCR_H - 16, 0.6f, C_DIM, remote_debug());
+#endif
 	ui_end();
 
 	/*

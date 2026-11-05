@@ -12,6 +12,7 @@
 #include "net.h"
 
 #include <libpad.h>
+#include "remote.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -163,6 +164,29 @@ static void input(u32 p)
 
 	if (p & PAD_CROSS)
 		activate();
+
+	/*
+	 * The remote's own keys (v60). PLAY only plays and PAUSE only pauses;
+	 * STOP, PREV and NEXT do what their buttons do, without moving the
+	 * focus.
+	 */
+	if (p & RMK_PLAY) {
+		if (audio_state() == AUDIO_PAUSED)
+			audio_resume();
+		else if (!is_playing() && jf_track_count > 0)
+			scr_player_start();
+	}
+
+	if ((p & RMK_PAUSE) && is_playing())
+		audio_pause();
+
+	if (p & (RMK_STOP | RMK_PREV | RMK_NEXT)) {
+		int keep = g_btn;
+
+		g_btn = (p & RMK_STOP) ? BTN_STOP : (p & RMK_PREV) ? BTN_PREV : BTN_NEXT;
+		activate();
+		g_btn = keep;
+	}
 
 	if (p & PAD_CIRCLE) {
 		/*

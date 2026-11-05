@@ -34,6 +34,10 @@ void ui_hint_row(const BtnGlyph *b, const char **s, int n)
 { (void)b; (void)s; (void)n; }
 void job_load_users(void) {}
 void job_connect(void) {}
+/* Reached through the remote's TITLE key (v61), never pressed here. */
+void job_load_home(void) {}
+void scr_video_stop_to_home(void) {}
+void audio_stop(void) {}
 
 static unsigned long ticks(unsigned long ms)
 {

@@ -13,6 +13,7 @@
  *   mask=255.255.255.0
  *   gateway=192.168.50.1
  *   video=480i            480i, 480p, 240p or 1080i (the others ask to confirm)
+ *   remote=auto           auto (DVD remote, built-in receiver) or off
  *   user=Name|id|token|device   one per signed-in user, written by the app
  *   end_margin_kb=32      for tuning how films end (see tuto.txt)
  *   end_early_ms=200
@@ -36,6 +37,10 @@ enum { NET_AUTO = 0, NET_DHCP, NET_STATIC };
 /* The display mode settings.txt asks for (video=). */
 enum { VIDEO_480I = 0, VIDEO_480P, VIDEO_240P, VIDEO_1080I };
 
+/* The DVD remote (remote=): auto reads the built-in receiver if the
+ * console has one; off never touches it. */
+enum { REMOTE_AUTO = 0, REMOTE_OFF };
+
 typedef struct {
 	char name[64];
 	char id[40];
@@ -50,6 +55,7 @@ typedef struct {
 	char mask[16];
 	char gateway[16];
 	int  video_mode;    /* VIDEO_480I, VIDEO_480P or VIDEO_240P (main.c) */
+	int  remote;        /* REMOTE_AUTO or REMOTE_OFF (remote.c) */
 	int  end_margin_kb; /* end once the stream is over and less is left */
 	int  end_early_ms;  /* end this long before the runtime; 0 = off */
 

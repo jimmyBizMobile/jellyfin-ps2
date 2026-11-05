@@ -89,6 +89,9 @@ void job_load_items(void);
  * opened from HOME, so Back returns there. */
 void job_load_home(void);
 
+/* TITLE during a film: stop as STOP does, then go to HOME (v60). */
+void scr_video_stop_to_home(void);
+
 /* Auto-play: start jf_next with the last episode's tracks (scr_detail.c). */
 void job_play_next(void);
 

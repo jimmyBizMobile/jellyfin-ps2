@@ -17,4 +17,7 @@ network=dhcp
 # Video output: 480i, 480p, 240p or 1080i (480p/1080i need component)
 video=480i
 
+# DVD remote: auto (built-in IR receiver, if the console has one) or off
+remote=auto
+
 # Signed-in users are added below by the app (user=...).

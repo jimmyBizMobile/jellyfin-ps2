@@ -27,10 +27,17 @@ play.
 - **Subtitles:** text tracks (SRT, ASS, WebVTT) are drawn by the PS2 itself,
   as quick to start and seek as no subtitles; picture-based tracks (PGS,
   VobSub) are burned in by the server. French and other Latin-1 accents are
-  supported.
+  supported. ASS/SSA tracks (common in anime) are offered twice: TEXT shows
+  the dialogue only, sharp, with lines meant for the top of the screen
+  (song romaji, notes) at the top; BURNED has the server draw everything,
+  signs and effects included, into the picture.
+  R3 during playback hides or shows the subtitles the PS2 draws.
 - **Series:** auto-play of the next episode, with a 5-second countdown once
   an episode has really ended.
 - **Music:** album playback with play, pause, stop and track skipping.
+- **DVD remote:** the PS2 DVD remote works on consoles with a built-in IR
+  receiver: PLAY, PAUSE, STOP, SCAN, PREV/NEXT, TITLE (back to HOME) and
+  more, alongside its controller keys.
 - **Settings in one file:** `settings.txt` beside the ELF holds the server,
   the network setup, the display mode and the signed-in users. It is
   optional.
@@ -45,6 +52,35 @@ play.
 - A way to launch an ELF: uLaunchELF/wLaunchELF, FreeMcBoot, PS2BBL or OPL.
 - A **Jellyfin server** on the same network, reachable over plain HTTP (the
   PS2 has no TLS), with its usual transcoding (ffmpeg) available.
+
+## The DVD remote
+
+On consoles with a built-in IR receiver (SCPH-50000 series and the slims),
+the PS2 DVD remote (SCPH-10150, SCPH-10420) controls the app. Its controller
+keys - X, Circle, Triangle, Square, the arrows, L1 to R3, SELECT, START -
+do exactly what the controller's do. The DVD keys:
+
+| Key | In a film | In the music player | Elsewhere |
+|-----|-----------|---------------------|-----------|
+| PLAY | play (resume when paused) | play | film page, track list, next episode: play |
+| PAUSE | pause | pause | |
+| STOP | stop | stop | next episode: cancel |
+| SCAN, PREV/NEXT | -10 s / +20 s (repeat when held) | PREV/NEXT: track | library: PREV/NEXT turn pages |
+| TITLE (TOP MENU) | stop, then HOME | stop, then HOME | HOME |
+| DVD MENU (MENU), RETURN | like Circle | like Circle | like Circle |
+| ENTER | like X | like X | like X |
+| CLEAR | | | keyboard: delete |
+| DISPLAY, TIME | show the playback bar | | |
+| SUBTITLE | hide or show subtitles (like R3) | | |
+
+PLAY only plays and PAUSE only pauses: pressing one in the other's state
+does nothing. TITLE stops a film or music exactly as STOP does - position
+saved - before going to HOME. Before signing in it does nothing.
+
+Consoles that need the IR dongle in a controller port (the first fat
+models) are not supported yet. The PSX (DESR) remote's keys are mapped too,
+but that has not been tested on a real DESR. `remote=off` in settings.txt
+turns the remote off.
 
 ## Installation
 
@@ -166,7 +202,8 @@ build.
 - `DEBUG_UI` (default 0): set to 1 to get the on-screen video readout
   (Square during playback), technical details on error screens, and
   `jfdebug.txt` / `jfstuck.txt` written beside the ELF when something fails.
-  It also adds two calibration screens: a geometry pattern (R2 on any menu
+  It also shows the remote's last raw reply at the bottom of the menus, to
+  map a key that does nothing. And two calibration screens: a geometry pattern (R2 on any menu
   screen: rulers from each edge, a 5% safe frame, a circle, and the GS
   values) and colour ramps (L2 on the connect screen). Release builds must
   keep it at 0.
@@ -189,6 +226,10 @@ hang on the very last bytes of a stream, so playback stops just before them.
 - The [Jellyfin](https://jellyfin.org) project.
 - Other Jellyfin clients for limited hardware, whose code informed this one,
   notably Pocketfin (PSP), and clients for PS3 and Wii U as well as the testers
+- Contributors: [asong65535](https://github.com/asong65535) (season loading,
+  the font fix, list scrolling and titles, network/UI thread priorities, and
+  the host test suites) and [nahsi](https://github.com/nahsi) (frame-rate
+  limit for 50 and 60 fps sources).
 
 ---
 
@@ -294,6 +335,16 @@ video
     films fill it, 4:3 films get bars on the sides. The menus use the
     whole width: 5 posters per row on HOME, 10 per page in the library.
     It asks "Keep 1080i?" at start-up, like 480p.
+
+remote
+    auto or off. Default: auto.
+    auto reads the PS2 DVD remote through the console's built-in IR
+    receiver (SCPH-50000 series and slims). The remote's controller keys
+    (X, Circle, the arrows, L1-R3, SELECT, START...) always work there,
+    because the console passes them on as controller 1; auto adds the
+    DVD keys - see "The DVD remote" in the README. off never reads the
+    receiver. Consoles that need the IR dongle in a controller port are
+    not supported yet.
 
 4. EXAMPLES
 -----------
@@ -432,6 +483,9 @@ network=dhcp
 
 # Video output: 480i, 480p, 240p or 1080i (480p/1080i need component)
 video=480i
+
+# DVD remote: auto (built-in IR receiver, if the console has one) or off
+remote=auto
 
 # Signed-in users are added below by the app (user=...).
 ```

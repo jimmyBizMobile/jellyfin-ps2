@@ -84,7 +84,7 @@ static void enter(void)
 static void job_episode_detail(void)
 {
 	if (jf_load_detail(jf_tracks[g_sel].id) < 0) {
-		app_fail(jf_err_title(), jf_err_body());
+		app_fail_here(jf_err_title(), jf_err_body());
 		return;
 	}
 
@@ -149,6 +149,43 @@ static void input(u32 p)
  * An album's tracks or a season's episodes: cover, title, description and
  * the list.
  */
+/*
+ * A title on one line within max_w: whole if it fits, otherwise cut and
+ * ended with "..." (v61). The longest prefix that fits is found by
+ * halving, so a long title costs a handful of measurements, not one per
+ * character.
+ */
+static void draw_title(float x, float y, u64 col, const char *s, float max_w)
+{
+	if (ui_text_w(1.0f, s) <= max_w) {
+		ui_text(x, y, 1.0f, col, s);
+		return;
+	}
+
+	char buf[sizeof(jf_tracks[0].name) + 4];
+	int  len = (int)strlen(s);
+	int  lo = 0, hi = len;            /* lo fits (with "..."), hi does not */
+
+	if (len > (int)sizeof(jf_tracks[0].name) - 1)
+		len = hi = (int)sizeof(jf_tracks[0].name) - 1;
+
+	while (hi - lo > 1) {
+		int mid = (lo + hi) / 2;
+
+		snprintf(buf, sizeof(buf), "%.*s...", mid, s);
+		if (ui_text_w(1.0f, buf) <= max_w)
+			lo = mid;
+		else
+			hi = mid;
+	}
+
+	while (lo > 0 && s[lo - 1] == ' ')
+		lo--;                          /* no space before the dots */
+
+	snprintf(buf, sizeof(buf), "%.*s...", lo, s);
+	ui_text(x, y, 1.0f, col, buf);
+}
+
 static void draw(void)
 {
 	ui_waves();
@@ -242,9 +279,10 @@ static void draw(void)
 		         jf_tracks[i].seconds / 60, jf_tracks[i].seconds % 60);
 		float dur_x = SCR_W - 56 - ui_text_w(1.0f, dur);
 
-		/* Keep long titles on one row, clear of the right-aligned runtime. */
-		ui_wrap(92, y, ROW_H, 1.0f, on ? C_WHITE : C_DIM,
-		        jf_tracks[i].name, dur_x - 92 - 12, 1);
+		/* Keep long titles on one row, clear of the right-aligned
+		 * runtime, ending in "..." when cut so it shows there is more. */
+		draw_title(92, y, on ? C_WHITE : C_DIM,
+		           jf_tracks[i].name, dur_x - 92 - 12);
 		ui_text(dur_x, y, 1.0f, C_DIM, dur);
 	}
 

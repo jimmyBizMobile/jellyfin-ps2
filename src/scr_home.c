@@ -137,7 +137,7 @@ static void job_open(void)
 	JfHomeItem *h = item(g_row, g_sel[g_row]);
 
 	if (jf_load_detail(h->id) < 0) {
-		app_fail(jf_err_title(), jf_err_body());
+		app_fail_here(jf_err_title(), jf_err_body());
 		return;
 	}
 

@@ -17,6 +17,7 @@
 #include <loadfile.h>
 #include <stdio.h>
 
+#include "remote.h"
 #include "app.h"
 #include "config.h"
 #include "settings.h"
@@ -281,6 +282,9 @@ int main(int argc, char **argv)
 	freeze_init();
 #endif
 
+	/* The DVD remote's own keys (remote.h), unless remote=off. */
+	remote_init();
+
 	/* 480p, if settings.txt asks for it and the TV shows it. */
 	choose_display();
 
@@ -289,7 +293,7 @@ int main(int argc, char **argv)
 
 	for (;;) {
 		u32 held;
-		u32 pressed = pad_pressed(&held);
+		u32 pressed = pad_pressed(&held) | remote_pressed();
 
 		/* Enter on a real keyboard behaves exactly like START. */
 		if (keyboard_poll())

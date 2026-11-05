@@ -201,6 +201,16 @@ static void apply(const char *key, char *val, int lineno)
 		return;
 	}
 
+	if (key_is(key, "remote")) {
+		for (char *p = val; *p; p++)
+			*p = tolower((unsigned char)*p);
+
+		if      (strcmp(val, "auto") == 0) settings.remote = REMOTE_AUTO;
+		else if (strcmp(val, "off")  == 0) settings.remote = REMOTE_OFF;
+		else note("settings.txt: remote= must be auto or off (%s)", where);
+		return;
+	}
+
 	if (key_is(key, "end_margin_kb") || key_is(key, "end_early_ms")) {
 		int v = 0, digits = 0;
 

@@ -226,7 +226,7 @@ static void job_episodes(void)
 {
 	if (jf_load_episodes(jf_show_id, jf_items[g_sel].id,
 	                     jf_items[g_sel].name) < 0) {
-		app_fail(jf_err_title(), jf_err_body());
+		app_fail_here(jf_err_title(), jf_err_body());
 		return;
 	}
 
@@ -249,7 +249,7 @@ static void job_tracks(void)
 {
 	if (jf_load_tracks(jf_items[g_sel].id, jf_items[g_sel].name,
 	                   jf_items[g_sel].year) < 0) {
-		app_fail(jf_err_title(), jf_err_body());
+		app_fail_here(jf_err_title(), jf_err_body());
 		return;
 	}
 
@@ -268,7 +268,7 @@ static void job_tracks(void)
 static void job_detail(void)
 {
 	if (jf_load_detail(jf_items[g_sel].id) < 0) {
-		app_fail(jf_err_title(), jf_err_body());
+		app_fail_here(jf_err_title(), jf_err_body());
 		return;
 	}
 

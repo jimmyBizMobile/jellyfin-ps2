@@ -16,6 +16,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -1594,7 +1595,22 @@ static void stream_label(int obj, int index, char *out, int len)
 
 	const char *name = language_name(lang);
 
-	if (name && title[0])
+	/* A title that already names the language ("English subtitles",
+	 * "English") says it all: "English (English subtitles)" only made
+	 * the row too long to fit (v58). */
+	int says_lang = 0;
+
+	if (name && title[0]) {
+		int nl = (int)strlen(name);
+
+		for (const char *t = title; *t && !says_lang; t++)
+			if (!strncasecmp(t, name, nl))
+				says_lang = 1;
+	}
+
+	if (says_lang)
+		snprintf(out, len, "%s", title);
+	else if (name && title[0])
 		snprintf(out, len, "%s (%s)", name, title);
 	else if (name)
 		snprintf(out, len, "%s", name);
@@ -1808,6 +1824,21 @@ const char *jf_video_stream_path_at(const char *item_id, int audio_index,
 		n += snprintf(path + n, sizeof(path) - n,
 		              "&SubtitleStreamIndex=%d&SubtitleMethod=Encode",
 		              sub_index);
+
+	/*
+	 * Burned-in subtitles from a position: keep the file's timestamps.
+	 *
+	 * To burn subtitles in after a seek, Jellyfin shifts every timestamp
+	 * back by the start position (setpts=PTS-start) - correct only when
+	 * ffmpeg keeps the file's own timestamps (-copyts), which Jellyfin
+	 * does for HLS but not for this progressive stream. Without it the
+	 * timestamps were shifted twice: the first <start> seconds of video
+	 * came out negative and were dropped, the stream began with nothing
+	 * but sound, and a seek with BURNED or IMAGE subtitles ended in
+	 * "No data from the server" (v58). copyTimestamps adds -copyts.
+	 */
+	if (sub_index >= 0 && start_ticks > 0)
+		n += snprintf(path + n, sizeof(path) - n, "&copyTimestamps=true");
 
 	/*
 	 * A fresh session for every playback.
@@ -2582,6 +2613,25 @@ int jf_load_detail(const char *id)
 						    strstr("pgssub dvdsub dvbsub dvd_subtitle "
 						           "hdmv_pgs_subtitle vobsub xsub",
 						           b->codec[0] ? b->codec : "?") == NULL;
+				}
+
+				b->burn = 0;
+
+				/*
+				 * ASS and SSA twice: drawn by the PS2 (dialogue
+				 * only, sharp, quick to seek), and burned in by the
+				 * server with every sign and effect, for shows whose
+				 * typesetting matters. Same label; the film page's
+				 * TEXT / BURNED tag tells them apart.
+				 */
+				if (b->is_text && jf_sub_count < JF_STREAM_MAX &&
+				    (!strcmp(b->codec, "ass") ||
+				     !strcmp(b->codec, "ssa"))) {
+					JfStream *c = &jf_subs[jf_sub_count++];
+
+					*c = *b;
+					c->is_text = 0;
+					c->burn    = 1;
 				}
 			}
 

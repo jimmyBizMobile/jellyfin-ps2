@@ -96,6 +96,16 @@ video
     whole width: 5 posters per row on HOME, 10 per page in the library.
     It asks "Keep 1080i?" at start-up, like 480p.
 
+remote
+    auto or off. Default: auto.
+    auto reads the PS2 DVD remote through the console's built-in IR
+    receiver (SCPH-50000 series and slims). The remote's controller keys
+    (X, Circle, the arrows, L1-R3, SELECT, START...) always work there,
+    because the console passes them on as controller 1; auto adds the
+    DVD keys - see "The DVD remote" in the README. off never reads the
+    receiver. Consoles that need the IR dongle in a controller port are
+    not supported yet.
+
 4. EXAMPLES
 -----------
 
