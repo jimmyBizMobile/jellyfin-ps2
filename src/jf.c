@@ -19,6 +19,7 @@
 #include <time.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
 
 char jf_url[128] = DEFAULT_URL;
 char jf_server_name[64] = "";
@@ -238,6 +239,9 @@ static int http_try(const char *path, int auth, int *status, char **body)
  */
 #define GET_ATTEMPTS JSON_ATTEMPTS
 
+/* Keep transport failures distinct from jsmn's overlapping error codes. */
+static int g_json_transport_rc;
+
 /*
  * Fetch a resource of any size by asking for it in slices small enough that
  * no TCP segment is ever full. See HTTP_SAFE_BYTES in config.h for why.
@@ -426,6 +430,7 @@ static int get_json(const char *path, int auth, int *status, char **body)
 {
 	int last = -1;
 	int toks = -1;
+	g_json_transport_rc = 0;
 
 	for (int attempt = 0; attempt < GET_ATTEMPTS; attempt++) {
 		/*
@@ -448,8 +453,10 @@ static int get_json(const char *path, int auth, int *status, char **body)
 		 * defence. Artwork does the same thing, but validates by decoding.
 		 */
 		int rc = http_try(path, auth, status, body);
-		if (rc < 0)
+		if (rc < 0) {
+			g_json_transport_rc = rc;
 			return rc;
+		}
 
 		toks = json_parse(*body);
 		if (toks > 0) {
@@ -1235,10 +1242,13 @@ static int ticks_to_seconds(int tok)
 	json_str(tok, buf, sizeof(buf));
 
 	long long t = 0;
-	for (const char *c = buf; *c >= '0' && *c <= '9'; c++)
+	for (const char *c = buf; *c >= '0' && *c <= '9'; c++) {
+		if (t > (LLONG_MAX - (*c - '0')) / 10)
+			return 0;
 		t = t * 10 + (*c - '0');
+	}
 
-	return (int)(t / 10000000LL);
+	return t / 10000000LL <= INT_MAX ? (int)(t / 10000000LL) : 0;
 }
 
 /* One request for a run of tracks, appending to jf_tracks. */
@@ -1380,24 +1390,99 @@ int jf_load_tracks(const char *album_id, const char *album_name, int year)
 	return 0;
 }
 
-/*
- * Episodes of one season, into the track list.
- *
- * Reuses jf_tracks because both are a numbered list of titles with a
- * runtime. The episodes carry no IndexNumber of their own, so the number
- * shown is the position in the reply, which the server has already sorted.
- *
- * One request: this endpoint returns the whole season, and eleven episodes
- * of a couple of hundred bytes each is well inside what the stack handles
- * now that the segment bug is gone.
- */
-int jf_load_episodes(const char *series_id, const char *season_id,
-                     const char *season_name)
+/* Fetch one bounded episode page, returning its SOURCE record count.
+ * Missing IDs/titles are skipped without changing the next source offset. */
+static int fetch_episode_run(const char *series_id, const char *season_id,
+                             int start, int limit, int *total)
 {
-	int   status;
+	int status = 0;
 	char *body;
 	static char path[640];
 
+	snprintf(path, sizeof(path),
+	         "/Shows/%s/Episodes?userId=%s"
+	         "&seasonId=%s"
+	         "&EnableImages=false&EnableUserData=false"
+	         "&Fields=RunTimeTicks&Limit=%d&StartIndex=%d",
+	         series_id, jf_user_id, season_id, limit, start);
+
+	int toks = get_json(path, 1, &status, &body);
+	if (net_last_raw_len() >= HTTP_RAW_MAX - 1) {
+		dump_reply("GET /Episodes");
+		return err("Episode reply too large",
+		           "HTTP response buffer exhausted. Reduce JF_FETCH_EPISODES. %s",
+		           net_last_info());
+	}
+	if (status != 200 && !g_json_transport_rc)
+		return err("Could not list episodes", "HTTP request failed. %s", net_last_info());
+	if (toks < 1) {
+		dump_reply("GET /Episodes");
+		if (g_json_transport_rc)
+			return err("Could not load episodes",
+			           "HTTP transport failed (%d); response may be incomplete. %s",
+			           g_json_transport_rc, net_last_info());
+		if (toks == -1) /* JSMN_ERROR_NOMEM */
+			return err("Episode reply too complex",
+			           "JSON token limit exhausted. Reduce JF_FETCH_EPISODES. %s",
+			           net_last_info());
+		return err("Episode list would not parse",
+		           "Malformed or incomplete JSON at byte %d. %s",
+		           json_fail_pos(), net_last_info());
+	}
+	int arr = json_get(0, "Items");
+	if (arr < 0 || !json_is_array(arr))
+		return err("Bad episode list", "Missing or invalid Items array. %s", net_last_info());
+
+	int count = json_size(arr), offset, page_total;
+	int vs = json_get(0, "StartIndex");
+	int vt = json_get(0, "TotalRecordCount");
+	if (count > limit || count > INT_MAX - start ||
+	    (vs >= 0 && (!json_uint(vs, &offset) || offset != start)) ||
+	    (vt >= 0 && (!json_uint(vt, &page_total) || page_total < start + count ||
+	                 (*total >= 0 && page_total != *total))))
+		return err("Unexpected episode page", "Invalid count, total or StartIndex at %d.", start);
+
+	if (vt >= 0) *total = page_total;
+	if (*total >= 0 && start + count > *total)
+		return err("Unexpected episode page", "Records exceed TotalRecordCount at %d.", start);
+
+	/* A short/empty page before a promised total is an incomplete response. */
+	if (count < limit && *total >= 0 && start + count < *total)
+		return err("Unexpected episode page", "Episode page ended before TotalRecordCount at %d.", start);
+
+	int before = jf_track_count;
+	int j = arr + 1;
+	for (int n = 0; n < count; n++, j = json_skip(j)) {
+		int vn = json_get(j, "Name"), vi = json_get(j, "Id");
+		if (!json_is_string(vn) || !json_is_string(vi))
+			continue;
+
+		JfTrack t = {0};
+		json_str(vn, t.name, sizeof(t.name));
+		/* Detect overlong IDs instead of silently opening a different item. */
+		char id[sizeof(t.id) + 1];
+		json_str(vi, id, sizeof(id));
+		if (!t.name[0] || !id[0] || strlen(id) >= sizeof(t.id))
+			continue;
+		strcpy(t.id, id);
+		for (int i = 0; i < jf_track_count; i++)
+			if (strcmp(jf_tracks[i].id, t.id) == 0)
+				return err("Unexpected episode page", "Repeated episode ID at StartIndex %d.", start);
+		t.seconds = ticks_to_seconds(json_get(j, "RunTimeTicks"));
+		jf_tracks[jf_track_count++] = t;
+	}
+
+	/* Every nonempty page must make progress: at most JF_TRACK_MAX pages,
+	 * even if the server never supplies totals and sends unusable records. */
+	if (count && jf_track_count == before)
+		return err("Bad episode list", "No usable episode IDs and titles at StartIndex %d.", start);
+	return count;
+}
+
+/* Episodes reuse the numbered track list, in the server's season order. */
+int jf_load_episodes(const char *series_id, const char *season_id,
+                     const char *season_name)
+{
 	jf_track_count     = 0;
 	jf_album_artist[0] = '\0';
 	jf_album_desc[0]   = '\0';
@@ -1433,44 +1518,18 @@ int jf_load_episodes(const char *series_id, const char *season_id,
 		}
 	}
 
-	snprintf(path, sizeof(path),
-	         "/Shows/%s/Episodes?userId=%s"
-	         "&seasonId=%s"
-	         "&EnableImages=false&EnableUserData=false"
-	         "&Fields=RunTimeTicks",
-	         series_id, jf_user_id, season_id);
-
-	int toks = get_json(path, 1, &status, &body);
-
-	if (status != 200)
-		return err("Could not list episodes", "%s", net_last_info());
-
-	if (toks < 1) {
-		dump_reply("GET /Episodes");
-		return err("Episode list would not parse", "%s", net_last_info());
-	}
-
-	int arr = json_get(0, "Items");
-	if (arr < 0 || !json_is_array(arr))
-		return err("Bad episode list", "%s", net_last_info());
-
-	int j = arr + 1;
-
-	for (int n = 0; n < json_size(arr) && jf_track_count < JF_TRACK_MAX; n++) {
-		int vn = json_get(j, "Name");
-		int vi = json_get(j, "Id");
-
-		if (vn >= 0 && vi >= 0) {
-			JfTrack *t = &jf_tracks[jf_track_count++];
-			json_str(vn, t->name, sizeof(t->name));
-			json_str(vi, t->id,   sizeof(t->id));
-			t->seconds = ticks_to_seconds(json_get(j, "RunTimeTicks"));
-			t->container[0] = '\0';    /* not streamed as audio */
+	int start = 0, total = -1;
+	while (jf_track_count < JF_TRACK_MAX) {
+		int want = JF_TRACK_MAX - jf_track_count;
+		if (want > JF_FETCH_EPISODES) want = JF_FETCH_EPISODES;
+		int count = fetch_episode_run(series_id, season_id, start, want, &total);
+		if (count < 0) {
+			jf_track_count = 0; /* Never expose a partial season as success. */
+			return -1;
 		}
-
-		j = json_skip(j);
+		start += count; /* validated against overflow by fetch_episode_run */
+		if (count < want || (total >= 0 && start >= total)) break;
 	}
-
 	return 0;
 }
 

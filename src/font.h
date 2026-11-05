@@ -30,6 +30,7 @@ typedef struct {
 	int atlas_w, atlas_h;
 	int cell_w,  cell_h;
 	int line_h;
+	int top_pad;             /* atlas pixels above the original text origin */
 	int first,   count;
 	const FontGlyph     *glyphs;
 	const unsigned char *bits;
@@ -51,7 +52,7 @@ void  font_reload(GSGLOBAL *gs);
 float font_width (float scale, const char *s);   /* exact */
 float font_height(float scale);
 
-/* y is the top of the cell. All glyphs share a baseline within it. */
+/* y is the text origin; atlas padding must not move the shared baseline. */
 void  font_draw(GSGLOBAL *gs, float x, float y, float scale,
                 u64 color, const char *s);
 

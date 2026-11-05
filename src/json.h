@@ -28,6 +28,10 @@ int  json_size(int i);
  */
 int  json_milli(int tok);
 int  json_is_array(int i);
+int  json_is_string(int i);
+
+/* A nonnegative integer primitive within INT_MAX; 0 on invalid/missing. */
+int  json_uint(int tok, int *out);
 
 void json_str(int tok, char *out, int max);   /* unescapes, \uXXXX -> Latin-1 */
 int  json_int(int tok);

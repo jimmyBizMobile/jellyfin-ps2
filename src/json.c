@@ -19,6 +19,7 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include "jsmn.h"
 
@@ -66,6 +67,24 @@ int json_size(int i)      { return (i >= 0 && i < g_count) ? g_tok[i].size : 0; 
 
 /* Whether token i is an array. */
 int json_is_array(int i)  { return (i >= 0 && i < g_count) && g_tok[i].type == JSMN_ARRAY; }
+int json_is_string(int i) { return (i >= 0 && i < g_count) && g_tok[i].type == JSMN_STRING; }
+
+int json_uint(int tok, int *out)
+{
+	if (tok < 0 || tok >= g_count || g_tok[tok].type != JSMN_PRIMITIVE)
+		return 0;
+
+	int start = g_tok[tok].start, end = g_tok[tok].end, value = 0;
+	if (start == end) return 0;
+	for (int i = start; i < end; i++) {
+		int digit = g_js[i] - '0';
+		if (digit < 0 || digit > 9 || value > (INT_MAX - digit) / 10)
+			return 0;
+		value = value * 10 + digit;
+	}
+	*out = value;
+	return 1;
+}
 
 /*
  * Step past every child, recursively. A leaf has size 0, never enters the
