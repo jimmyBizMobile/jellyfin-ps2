@@ -1681,7 +1681,8 @@ int jf_video_rate(int src_milli)
 	if (src_milli <= VIDEO_MAX_FPS_MILLI + VIDEO_FPS_SLACK_MILLI)
 		return src_milli;
 
-	int n = (src_milli + VIDEO_MAX_FPS_MILLI - 1) / VIDEO_MAX_FPS_MILLI;
+	int n = (src_milli + VIDEO_MAX_FPS_MILLI + VIDEO_FPS_SLACK_MILLI - 1) /
+	        (VIDEO_MAX_FPS_MILLI + VIDEO_FPS_SLACK_MILLI);
 
 	return src_milli / n;
 }
